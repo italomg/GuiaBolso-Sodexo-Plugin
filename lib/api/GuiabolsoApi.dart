@@ -20,9 +20,11 @@ class GuiabolsoApi {
 
   static const String LOGIN_EVENT_NAME = "users:login";
 
-  static const String SESSION_TOKEN = "gb_session_token";
+  static const String UPDATE_SESSION_TOKEN_EVENT_NAME = "update:session:token";
 
-  static const String TOKEN = "gb_token";
+  static const String SESSION_TOKEN_KEY = "gb_session_token";
+
+  static const String TOKEN_KEY = "gb_token";
 
   GuiabolsoApi({this.cpf, this.email, this.localDatabase});
 
@@ -40,7 +42,48 @@ class GuiabolsoApi {
   }
 
   void refreshToken() {
+    String sessionToken = localDatabase.getString(SESSION_TOKEN_KEY);
 
+    Map<String, String> payload = {
+      "appToken": "6.3.0.0",
+      "deviceToken": "noIdeaHowToGenerateThis", //TODO findout this information shouldn't be hard
+      "sessionToken": sessionToken,
+      "userAgent": "",
+    };
+
+    Map<String, dynamic> bodyObject = {
+      "name": UPDATE_SESSION_TOKEN_EVENT_NAME,
+      "payload": payload,
+      "version": 1,
+      "auth": {},
+      "flowId": "",
+      "id": "",
+      "identity": {
+        "xForwardedFor": "127.0.0.1"
+      },
+      "metadata": {},
+    };
+
+    String body = json.encode(bodyObject);
+    http.post(OTHER_EVENTS, headers: HEADERS, body: body).then((loginResponse) {
+      print("===== Guia Bolso token renew was a success ======");
+      Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
+
+      String name = decodedReponseBody["name"];
+      if (name != eventNameResponse(LOGIN_EVENT_NAME)) {
+        print("===== Guia Bolso token renew failed with error: ======");
+        print(loginResponse);
+      }
+
+      String newSessionToken = decodedReponseBody["auth"]["sessionToken"];
+      String newToken = decodedReponseBody["auth"]["token"];
+
+      localDatabase.setString(SESSION_TOKEN_KEY, newSessionToken);
+      localDatabase.setString(TOKEN_KEY, newToken);
+    }).catchError((error) {
+      print("===== Guia Bolso token renew failed with error: ======");
+      print(error);
+    });
   }
 
   void login() {
@@ -60,14 +103,14 @@ class GuiabolsoApi {
     };
 
     Map<String, dynamic> bodyObject = {
-      "flowId": "",
-      "id": "85529a1e-bd9b-4972-879d-8a5fd050be12", //TODO calculate this using some hash with timestamp
       "name": LOGIN_EVENT_NAME,
+      "payload": payload,
+      "id": "85529a1e-bd9b-4972-879d-8a5fd050be12", //TODO calculate this using some hash with timestamp
       "version": 3,
+      "flowId": "",
       "identity": {
         "xForwardedFor": "127.0.0.1"
       },
-      "payload": payload,
       "metadata": {},
       "auth": {},
     };
@@ -79,17 +122,17 @@ class GuiabolsoApi {
 
       String name = decodedReponseBody["name"];
       if (name != eventNameResponse(LOGIN_EVENT_NAME)) {
-        print("===== login failed with error: ======");
+        print("===== Guia Bolso login failed with error: ======");
         print(loginResponse);
       }
 
       String sessionToken = decodedReponseBody["auth"]["sessionToken"];
       String token = decodedReponseBody["auth"]["token"];
 
-      localDatabase.setString(SESSION_TOKEN, sessionToken);
-      localDatabase.setString(TOKEN, token);
+      localDatabase.setString(SESSION_TOKEN_KEY, sessionToken);
+      localDatabase.setString(TOKEN_KEY, token);
     }).catchError((error) {
-      print("===== login failed with error: ======");
+      print("===== Guia Bolso login failed with error: ======");
       print(error);
     });
   }
