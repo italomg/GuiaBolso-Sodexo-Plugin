@@ -63,8 +63,15 @@ class _MyHomePageState extends State<MyHomePage> {
 
   static const String ALL_SODEXO_TRANSACTIONS = "all_sodexo_transactions";
 
+  BuildContext globalContext;
+
   String buildTransactionKey(String transatctionKey) {
     return "sodexo_transaction_" + transatctionKey;
+  }
+
+  Function _updateGuiabolsoExpensesWrapper(BuildContext context) {
+    globalContext = context;
+    return _updateGuiabolsoExpenses;
   }
 
   void _updateGuiabolsoExpenses() async {
@@ -86,38 +93,52 @@ class _MyHomePageState extends State<MyHomePage> {
       date = dateFormater.format(DateTime.now());
     }
     MyHomePage.localDatabase.setString(LAST_UPDATE_KEY, dateFormater.format(DateTime.now()));
-    
-    List<SodexoCard> sodexoTransactionEntities = await sodexoApi.fetchLatestTransactions(date, 0);
-    print(sodexoTransactionEntities);
 
-    if (sodexoTransactionEntities == null) {
-      return;
-    }
+    try {
+      List<SodexoCard> sodexoTransactionEntities = await sodexoApi
+          .fetchLatestTransactions(date, 0);
 
-    await guiabolsoApi.populateDatabaseWithStatements();
-
-    Set<String> currentTransactions = new Set.from(MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS) != null ? MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS) : []);
-    print("============= currentTransactions size ${currentTransactions.length} ===========");
-    for (SodexoCard card in sodexoTransactionEntities) {
-      String sodexoKey = SodexoCard.PRODUCT_TO_TYPE[card.productCode];
-      int statementId = MyHomePage.localDatabase.getInt(sodexoKey);
-
-      if (statementId == null) {
-        continue;
+      if (sodexoTransactionEntities == null) {
+        Scaffold.of(globalContext).showSnackBar(new SnackBar(content: new Text("No transactions to update")));
+        return;
       }
 
-      for (SodexoTransaction sodexoTransaction in card.sodexoTransactions) {
-        String sodexoTransactionKey = sodexoTransaction.codeAuthorization != null ?
-          sodexoTransaction.date + "_" + buildTransactionKey(sodexoTransaction.codeAuthorization) :
+      await guiabolsoApi.populateDatabaseWithStatements();
+
+      Set<String> currentTransactions = new Set.from(
+          MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS) !=
+              null ? MyHomePage.localDatabase.getStringList(
+              ALL_SODEXO_TRANSACTIONS) : []);
+      print("============= currentTransactions size ${currentTransactions
+          .length} ===========");
+      for (SodexoCard card in sodexoTransactionEntities) {
+        String sodexoKey = SodexoCard.PRODUCT_TO_TYPE[card.productCode];
+        int statementId = MyHomePage.localDatabase.getInt(sodexoKey);
+
+        if (statementId == null) {
+          continue;
+        }
+
+        for (SodexoTransaction sodexoTransaction in card.sodexoTransactions) {
+          String sodexoTransactionKey = sodexoTransaction.codeAuthorization !=
+              null ?
+          sodexoTransaction.date + "_" +
+              buildTransactionKey(sodexoTransaction.codeAuthorization) :
           sodexoTransaction.date + "_" + sodexoKey;
 
-        if (!currentTransactions.contains(sodexoTransactionKey)) {
-          await guiabolsoApi.addExpense(sodexoTransaction, statementId);
-          currentTransactions.add(sodexoTransactionKey);
+          if (!currentTransactions.contains(sodexoTransactionKey)) {
+            await guiabolsoApi.addExpense(sodexoTransaction, statementId);
+            currentTransactions.add(sodexoTransactionKey);
+          }
         }
       }
+      MyHomePage.localDatabase.setStringList(
+          ALL_SODEXO_TRANSACTIONS, currentTransactions.toList());
+    } catch (error) {
+      print(error);
+      print("======== WILL SHOW TOAST =========");
+      Scaffold.of(globalContext).showSnackBar(new SnackBar(content: new Text("A request failed... try again"), backgroundColor: Colors.red));
     }
-    MyHomePage.localDatabase.setStringList(ALL_SODEXO_TRANSACTIONS, currentTransactions.toList());
   }
 
   @override
@@ -134,32 +155,36 @@ class _MyHomePageState extends State<MyHomePage> {
         // the App.build method, and use it to set our appbar title.
         title: Text(widget.title),
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug paint" (press "p" in the console where you ran
-          // "flutter run", or select "Toggle Debug Paint" from the Flutter tool
-          // window in IntelliJ) to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            FloatingActionButton(
-              onPressed: _updateGuiabolsoExpenses,
-              tooltip: 'Update',
-              child: Icon(Icons.autorenew),
-            ), // This trailing comma makes auto-formatting nicer for build methods.
-          ],
-        ),
+      body: Builder(
+        builder: (BuildContext context) {
+          return Center(
+            // Center is a layout widget. It takes a single child and positions it
+            // in the middle of the parent.
+            child: Column(
+              // Column is also layout widget. It takes a list of children and
+              // arranges them vertically. By default, it sizes itself to fit its
+              // children horizontally, and tries to be as tall as its parent.
+              //
+              // Invoke "debug paint" (press "p" in the console where you ran
+              // "flutter run", or select "Toggle Debug Paint" from the Flutter tool
+              // window in IntelliJ) to see the wireframe for each widget.
+              //
+              // Column has various properties to control how it sizes itself and
+              // how it positions its children. Here we use mainAxisAlignment to
+              // center the children vertically; the main axis here is the vertical
+              // axis because Columns are vertical (the cross axis would be
+              // horizontal).
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                FloatingActionButton(
+                  onPressed: _updateGuiabolsoExpensesWrapper(context),
+                  tooltip: 'Update',
+                  child: Icon(Icons.autorenew),
+                ), // This trailing comma makes auto-formatting nicer for build methods.
+              ],
+            ),
+          );
+        },
       ),
     );
   }

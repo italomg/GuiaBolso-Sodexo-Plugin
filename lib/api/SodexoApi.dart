@@ -53,12 +53,12 @@ class SodexoApi {
       return parseSodexoExtractResponse(sodexoExtractResponse);
     } else {
       print("===== Sodexo extract fetch REQUEST FAILED ======");
-      refreshToken(localDatabase);
-      return fetchLatestTransactions(initialDate, retry + 1);
+      await refreshToken(localDatabase);
+      return await fetchLatestTransactions(initialDate, retry + 1);
     }
   }
 
-  void refreshToken(SharedPreferences localDatabase) {
+  Future<void> refreshToken(SharedPreferences localDatabase) async {
     Map<String, String> headers = {
       "systemid": "7",
       "systemname": "Mobile",
@@ -83,7 +83,7 @@ class SodexoApi {
 
     String body = json.encode(bodyObject);
     
-    http.post(RENEW_TOKEN_URL, body: body, headers: headers ).then((sodexoExtractResponse) {
+    await http.post(RENEW_TOKEN_URL, body: body, headers: headers ).then((sodexoExtractResponse) async {
       if (isRequestSuccessful(sodexoExtractResponse.statusCode)) {
         print("===== Sodexo token renew REQUEST was a success ======");
         print(sodexoExtractResponse.statusCode);
@@ -91,7 +91,7 @@ class SodexoApi {
         localDatabase.setString(AUTHORIZATION_TOKEN_KEY, newToken);
       } else {
         print("===== Sodexo refresh token RESPONSE ERROR.... login will be retried ======");
-        login(localDatabase);
+        await login(localDatabase);
       }
     }).catchError((error) {
       print("===== Sodexo refresh token REQUEST FAILED ======");
@@ -102,7 +102,7 @@ class SodexoApi {
 
   }
 
-  void login(SharedPreferences localDatabase) {
+  Future<void> login(SharedPreferences localDatabase) async {
     Map<String, String> headers = {
       "consumerid": "consumerUserMobile",
       "contextid": "UserPortalService",
@@ -135,6 +135,10 @@ class SodexoApi {
       print("===== Sodexo login REQUEST was a success ======");
       Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
 
+      if (decodedReponseBody["user"] == null) {
+        throw new Exception(loginResponse.body);
+      }
+
       int userId = decodedReponseBody["user"]["id"];
       String authorizationToken = decodedReponseBody["accessToken"];
       String renewToken = decodedReponseBody["refreshToken"];
@@ -143,7 +147,7 @@ class SodexoApi {
       localDatabase.setString(AUTHORIZATION_TOKEN_KEY, authorizationToken);
       localDatabase.setString(RENEW_TOKEN_KEY, renewToken);
     }).catchError((error) {
-      print("===== Sodexo login REUEST FAILED with error: ======");
+      print("===== Sodexo login REQUEST FAILED with error: ======");
       print(error);
 
       throw error;
