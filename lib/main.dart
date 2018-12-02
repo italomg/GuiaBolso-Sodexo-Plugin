@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:guiabolso_plugin_sodexo/model/SodexoCard.dart';
+import 'package:guiabolso_plugin_sodexo/model/SodexoTransaction.dart';
 import 'package:guiabolso_plugin_sodexo/api/SodexoApi.dart';
+import 'package:intl/intl.dart';
+import 'package:guiabolso_plugin_sodexo/api/GuiabolsoApi.dart';
 
 void main() => runApp(MyApp());
 
@@ -55,6 +58,15 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+
+  static const LAST_UPDATE_KEY = "last_update";
+
+  static const String ALL_SODEXO_TRANSACTIONS = "all_sodexo_transactions";
+
+  String buildTransactionKey(String transatctionKey) {
+    return "sodexo_transaction_" + transatctionKey;
+  }
+
   void _updateGuiabolsoExpenses() async {
     setState(() {
       // This call to setState tells the Flutter framework that something has
@@ -64,11 +76,40 @@ class _MyHomePageState extends State<MyHomePage> {
       // called again, and so nothing would appear to happen.
     });
 
+    GuiabolsoApi guiabolsoApi = new GuiabolsoApi(password: "{password}", email: "{email}", localDatabase: MyHomePage.localDatabase);
+
+    DateFormat dateFormater = new DateFormat("yyyyMMdd");
+
+    String date = MyHomePage.localDatabase.getString(LAST_UPDATE_KEY);
+    if (date == null) {
+      date = dateFormater.format(DateTime.now());
+      MyHomePage.localDatabase.setString(LAST_UPDATE_KEY, date);
+    }
+
     List<SodexoCard> sodexoTransactionEntities =
-      await SodexoApi.fetchLatestTransactions("", "", "20181001", MyHomePage.localDatabase);
+      await SodexoApi.fetchLatestTransactions("{cpf}", "{sodexoPassword}", date, MyHomePage.localDatabase);
     print("============= FETCH RESULT ===========");
     print(sodexoTransactionEntities);
 
+    await guiabolsoApi.populateDatabaseWithStatements();
+
+    Set<String> currentTransactions = new Set.from(MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS));
+    for (SodexoCard card in sodexoTransactionEntities) {
+      String sodexoKey = SodexoCard.PRODUCT_TO_TYPE[card.productCode];
+      int statementId = MyHomePage.localDatabase.getInt(sodexoKey);
+
+      for (SodexoTransaction sodexoTransaction in card.sodexoTransactions) {
+        String sodexoTransactionKey = sodexoTransaction.codeAuthorization != null ?
+          sodexoTransaction.date + "_" + buildTransactionKey(sodexoTransaction.codeAuthorization) :
+          sodexoTransaction.date + "_" + sodexoKey;
+
+        if (!currentTransactions.contains(sodexoTransactionKey)) {
+          currentTransactions.add(sodexoTransactionKey);
+          await guiabolsoApi.addExpense(sodexoTransaction, statementId);
+        }
+      }
+    }
+    MyHomePage.localDatabase.setStringList(ALL_SODEXO_TRANSACTIONS, currentTransactions.toList());
   }
 
   @override

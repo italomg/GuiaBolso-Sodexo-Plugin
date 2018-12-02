@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 
 class GuiabolsoApi {
   String email;
-  String cpf;
+  String password;
   SharedPreferences localDatabase;
 
   static const Map<String, String> HEADERS = {
@@ -51,12 +51,9 @@ class GuiabolsoApi {
     ACCOUNT_NAME_REFEICAO: SODEXO_REFEICAO_STATEMENT_KEY,
   };
 
-  GuiabolsoApi({this.cpf, this.email, this.localDatabase});
+  GuiabolsoApi({this.password, this.email, this.localDatabase});
 
-  void addExpense(SodexoTransaction sodexoTransaction, int statementId) async {
-    // Must try to add expense, on failure try to get a fresh token if that also fail try logging in again
-    await populateDatabaseWithStatements();
-
+  Future<void > addExpense(SodexoTransaction sodexoTransaction, int statementId) async {
     String sessionToken = localDatabase.getString(SESSION_TOKEN_KEY);
 
     Map<String, String> specialContentTypeHeader = HEADERS;
@@ -228,9 +225,9 @@ class GuiabolsoApi {
       "mobileUserId": "",
       "origin": "Android",
       "os": "Android",
-      "pwd": "{passwordPlaceholder}",
+      "pwd": "{password}",
       "userPlatform": "GuiaBolso",
-      "email": "{emailPlaceholder}"
+      "email": "{email}"
     };
 
     Map<String, dynamic> bodyObject = {
