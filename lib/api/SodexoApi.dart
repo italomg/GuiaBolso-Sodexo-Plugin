@@ -82,16 +82,16 @@ class SodexoApi {
     
     http.post(RENEW_TOKEN_URL, body: body, headers: headers ).then((sodexoExtractResponse) {
       if (isRequestSuccessful(sodexoExtractResponse.statusCode)) {
-        print("===== token renew was a success ======");
+        print("===== Sodexo token renew was a success ======");
         print(sodexoExtractResponse.statusCode);
         String newToken = json.decode(sodexoExtractResponse.body)["accessToken"];
         localDatabase.setString(AUTHORIZATION_TOKEN_KEY, newToken);
       } else {
-        print("===== token renew went wrong.... login will be retried ======");
+        print("===== Sodexo token renew went wrong.... login will be retried ======");
         login(localDatabase);
       }
     }).catchError((error) {
-      print("===== http request went wrong.... login will be retried ======");
+      print("===== Sodexo http request went wrong.... login will be retried ======");
       print(error);
     });
 
@@ -127,10 +127,10 @@ class SodexoApi {
     };
     String body = json.encode(bodyObject);
     http.post(LOGIN_URL, headers: headers, body: body).then((loginResponse) {
-      print("===== login was a success ======");
+      print("===== Sodexo login was a success ======");
       Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
 
-      int userId = decodedReponseBody["User"]["id"];
+      int userId = decodedReponseBody["user"]["id"];
       String authorizationToken = decodedReponseBody["accessToken"];
       String renewToken = decodedReponseBody["refreshToken"];
 
@@ -138,7 +138,7 @@ class SodexoApi {
       localDatabase.setString(AUTHORIZATION_TOKEN_KEY, authorizationToken);
       localDatabase.setString(RENEW_TOKEN_KEY, renewToken);
     }).catchError((error) {
-      print("===== login failed with error: ======");
+      print("===== Sodexo login failed with error: ======");
       print(error);
     });
   }

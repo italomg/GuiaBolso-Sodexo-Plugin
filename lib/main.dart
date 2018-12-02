@@ -76,10 +76,6 @@ class _MyHomePageState extends State<MyHomePage> {
       // called again, and so nothing would appear to happen.
     });
 
-    GuiabolsoApi guiabolsoApi = new GuiabolsoApi(password: "{Guiabolsopassword}", email: "{email}", localDatabase: MyHomePage.localDatabase);
-    SodexoApi sodexoApi = new SodexoApi(cpf: "{cpf}", password: "{sodexoPassword}", localDatabase: MyHomePage.localDatabase);
-
-
     DateFormat dateFormater = new DateFormat("yyyyMMdd");
 
     String date = MyHomePage.localDatabase.getString(LAST_UPDATE_KEY);
@@ -88,16 +84,25 @@ class _MyHomePageState extends State<MyHomePage> {
       MyHomePage.localDatabase.setString(LAST_UPDATE_KEY, date);
     }
 
-    print("============= fetch Sodexo transactions===========");
-    List<SodexoCard> sodexoTransactionEntities = await sodexoApi.fetchLatestTransactions(date);
+    print("============= fetch Sodexo transactions ===========");
+    List<SodexoCard> sodexoTransactionEntities = await sodexoApi.fetchLatestTransactions("20181128");
     print(sodexoTransactionEntities);
+
+    if (sodexoTransactionEntities == null) {
+      return;
+    }
 
     await guiabolsoApi.populateDatabaseWithStatements();
 
-    Set<String> currentTransactions = new Set.from(MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS));
+    Set<String> currentTransactions = new Set.from(MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS) != null ? MyHomePage.localDatabase.getStringList(ALL_SODEXO_TRANSACTIONS) : []);
+    print("============= currentTransactions size ${currentTransactions.length} ===========");
     for (SodexoCard card in sodexoTransactionEntities) {
       String sodexoKey = SodexoCard.PRODUCT_TO_TYPE[card.productCode];
       int statementId = MyHomePage.localDatabase.getInt(sodexoKey);
+
+      if (statementId == null) {
+        continue;
+      }
 
       for (SodexoTransaction sodexoTransaction in card.sodexoTransactions) {
         String sodexoTransactionKey = sodexoTransaction.codeAuthorization != null ?
@@ -105,8 +110,8 @@ class _MyHomePageState extends State<MyHomePage> {
           sodexoTransaction.date + "_" + sodexoKey;
 
         if (!currentTransactions.contains(sodexoTransactionKey)) {
-          currentTransactions.add(sodexoTransactionKey);
           await guiabolsoApi.addExpense(sodexoTransaction, statementId);
+          currentTransactions.add(sodexoTransactionKey);
         }
       }
     }

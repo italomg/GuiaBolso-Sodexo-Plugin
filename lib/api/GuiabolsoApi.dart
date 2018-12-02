@@ -3,6 +3,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:intl/intl.dart';
+import 'package:crypto/crypto.dart';
+import 'package:device_info/device_info.dart';
+import 'dart:io' show Platform;
 
 class GuiabolsoApi {
   String email;
@@ -17,9 +20,9 @@ class GuiabolsoApi {
     "Accept-Encoding": "gzip, deflate",
   };
 
-  static const String EVENTS_URL = "https://www.guiabolso.com.br/API/events";
+  static const String EVENTS_URL = "https://www.guiabolso.com.br/API/events/";
 
-  static const String OTHER_EVENTS_URL = EVENTS_URL + "/others";
+  static const String OTHER_EVENTS_URL = EVENTS_URL + "others/";
 
   static const String MANUAL_TRANSACTION_URL = "https://www.guiabolso.com.br/API/v4/transactions/manual";
 
@@ -55,14 +58,15 @@ class GuiabolsoApi {
 
   Future<void > addExpense(SodexoTransaction sodexoTransaction, int statementId) async {
     String sessionToken = localDatabase.getString(SESSION_TOKEN_KEY);
+    print("===== Guia Bolso session token $sessionToken ======");
 
-    Map<String, String> specialContentTypeHeader = HEADERS;
+    Map<String, String> specialContentTypeHeader = new Map.from(HEADERS);
     specialContentTypeHeader["Content-Type"] = "application/x-www-form-urlencoded";
 
     DateFormat dateFormatter = new DateFormat("dd/MM/yyyy");
 
     String date = sodexoTransaction.date;
-    double value = sodexoTransaction.indicatorTransaction == "+" ? sodexoTransaction.balance : sodexoTransaction.balance * -1;
+    double value = sodexoTransaction.indicatorTransaction == "+" ? sodexoTransaction.balance.toDouble() : sodexoTransaction.balance.toDouble() * -1;
     String label = sodexoTransaction.description.trim();
     String description = "";
     String formattedDate = dateFormatter.format(DateTime.parse(date));
@@ -72,28 +76,30 @@ class GuiabolsoApi {
     body += "&deviceToken=" + deviceToken;
     body +=" &value=" + value.toStringAsFixed(2);
     body += "&label=" + label;
-    body += "&date=" + formattedDate;
+    body += "&date=" + Uri.encodeQueryComponent(formattedDate);
     body += "&statementId=" + statementId.toString();
     body += "&description=" + description ;
-    body += "&appToken=6.3.0.0&userPlatform=GuiaBolso&currency=BRL";
+    body += "&appToken=6.3.0.0&userPlatform=GuiaBolso&currency=BRL&categoryId=1";
 
-    body = Uri.encodeQueryComponent(body);
+    print("===== Guia Bolso add expense body $body ======");
 
     await http.post(MANUAL_TRANSACTION_URL, headers: specialContentTypeHeader, body: body).then((addExpenseResponse) {
       print("===== Guia Bolso add expense was a success ======");
       Map<String, dynamic> decodedReponseBody = json.decode(addExpenseResponse.body);
 
-      String name = decodedReponseBody["name"];
       int returnCode = decodedReponseBody["returnCode"];
-      if (name != eventNameResponse(UPDATE_SESSION_TOKEN_EVENT_NAME) || returnCode != 1) {
-        throw new Exception(addExpenseResponse);
+      if (returnCode != 1) {
+        print("===== Guia Bolso add expense error code ${addExpenseResponse.statusCode} ======");
+        throw new Exception(addExpenseResponse.body);
       }
-    }).catchError((error) {
+    }).catchError((error) async {
       print("===== Guia Bolso add expense failed with error: ======");
       print(error);
 
       print("===== Will now try to refresh token: ======");
-      refreshToken();
+      await refreshToken();
+
+      throw error;
     });
   }
 
@@ -101,12 +107,13 @@ class GuiabolsoApi {
     Set<String> statementKeys = new Set.from([SODEXO_ALIMENTACAO_STATEMENT_KEY, SODEXO_COMBUSTIVEL_STATEMENT_KEY, SODEXO_REFEICAO_STATEMENT_KEY]);
     Set<String> statementNames = new Set.from([ACCOUNT_NAME_ALIMENTACAO, ACCOUNT_NAME_COMBUSTIVEL, ACCOUNT_NAME_REFEICAO]);
 
+    http.Response userInfo = await fetchUserInfo();
     for (String statementKey in statementKeys) {
       if (!localDatabase.getKeys().contains(statementKey)) {
-        http.Response userInfo = await fetchUserInfo();
-
+        print("===== Guia Bolso statement key $statementKey not present ======");
         if (!isRequestSuccessful(userInfo.statusCode)) {
-          refreshToken();
+          print("===== Guia Bolso could not fetch user info REQUEST FAILED ======");
+          await refreshToken();
           throw new Exception(userInfo);
         }
 
@@ -114,17 +121,22 @@ class GuiabolsoApi {
         String name = userInfoBodyParsed["name"];
 
         if (name != eventNameResponse(RAWDATA_INFO_EVENT_NAME)) {
-          refreshToken();
+          print("===== Guia Bolso could not fetch user info RESPONSE ERROR ======");
+          await refreshToken();
           throw new Exception(userInfo);
         }
 
         List<dynamic> accounts = userInfoBodyParsed["payload"]["accounts"];
         for (dynamic account in accounts) {
           if (account["accountType"] == 1) {
+            print("===== Guia Bolso custom account found ======");
             List<dynamic> statements = account["statements"];
             for (dynamic statement in statements) {
-              if (statementNames.contains(statement["name"])) {
-                localDatabase.setInt(ACCOUNT_TO_DATABASE[statement["name"]], statement["id"]);
+              String statementName = statement["name"];
+              statementName = utf8.decode(statementName.codeUnits);
+              print("===== Guia Bolso statement name $statementName ======");
+              if (statementNames.contains(statementName)) {
+                localDatabase.setInt(ACCOUNT_TO_DATABASE[statementName], statement["id"]);
               }
             }
           }
@@ -138,7 +150,7 @@ class GuiabolsoApi {
 
     Map<String, String> auth = {
       "sessionToken": "",
-      "token": "Bearer " + token,
+      "token": "Bearer $token",
     };
 
     Map<String, dynamic> bodyObject = {
@@ -154,7 +166,7 @@ class GuiabolsoApi {
       "payload": {
         "appToken": "6.3.0.0",
         "os": "Android",
-        "userPlatform": "GuiaBolsoPlugin"
+        "userPlatform": "GuiaBolso"
       },
     };
 
@@ -167,12 +179,13 @@ class GuiabolsoApi {
     throw new UnimplementedError();
   }
 
-  void refreshToken() {
+  Future<void> refreshToken() async {
     String sessionToken = localDatabase.getString(SESSION_TOKEN_KEY);
+    String deviceId = await getDeviceId();
 
     Map<String, String> payload = {
       "appToken": "6.3.0.0",
-      "deviceToken": "noIdeaHowToGenerateThis", //TODO findout this information shouldn't be hard
+      "deviceToken": deviceId,
       "sessionToken": sessionToken,
       "userAgent": "",
     };
@@ -193,6 +206,11 @@ class GuiabolsoApi {
     String body = json.encode(bodyObject);
     http.post(OTHER_EVENTS_URL, headers: HEADERS, body: body).then((loginResponse) {
       print("===== Guia Bolso token renew was a success ======");
+      print(loginResponse.request.url);
+      print(loginResponse.request.headers);
+      print(body);
+      print(loginResponse.statusCode);
+      print(loginResponse.body);
       Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
 
       String name = decodedReponseBody["name"];
@@ -214,26 +232,32 @@ class GuiabolsoApi {
     });
   }
 
-  void login() {
+  void login() async {
+    String deviceName = await getDeviceName();
+    String deviceId = await getDeviceId();
+    DateTime date = DateTime.now();
+    String loginIdValue = date.toIso8601String() + deviceId;
+    String loginId = sha1.convert(loginIdValue.codeUnits).toString();
+
     Map<String, String> payload = {
       "appKey": "",
       "appToken": "6.3.0.0",
       "channelId": "",
-      "deviceName": "deviceNameGoesHere", //TODO findout this information shouldn't be hard
-      "deviceToken": "noIdeaHowToGenerateThis", //TODO findout this information shouldn't be hard
+      "deviceName": deviceName,
+      "deviceToken": deviceId,
       "pnToken": "",
       "mobileUserId": "",
       "origin": "Android",
       "os": "Android",
       "pwd": password,
-      "userPlatform": "GuiaBolsoPlugin",
+      "userPlatform": "GuiaBolso",
       "email": email
     };
 
     Map<String, dynamic> bodyObject = {
       "name": LOGIN_EVENT_NAME,
       "payload": payload,
-      "id": "85529a1e-bd9b-4972-879d-8a5fd050be12", //TODO calculate this using some hash with timestamp
+      "id": loginId,
       "version": 3,
       "flowId": "",
       "identity": {
@@ -246,12 +270,13 @@ class GuiabolsoApi {
     String body = json.encode(bodyObject);
     http.post(OTHER_EVENTS_URL, headers: HEADERS, body: body).then((loginResponse) {
       print("===== Guia Bolso login was a success ======");
+      print(loginResponse.body);
       Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
 
       String name = decodedReponseBody["name"];
       if (name != eventNameResponse(LOGIN_EVENT_NAME)) {
         print("===== Guia Bolso login failed with error: ======");
-        print(loginResponse);
+        print(loginResponse.toString());
       }
 
       String sessionToken = decodedReponseBody["auth"]["sessionToken"];
@@ -261,7 +286,7 @@ class GuiabolsoApi {
       localDatabase.setString(TOKEN_KEY, token);
     }).catchError((error) {
       print("===== Guia Bolso login failed with error: ======");
-      print(error);
+      print(error.toString());
     });
   }
 
@@ -272,5 +297,27 @@ class GuiabolsoApi {
   //TODO move this method to a parent class(make one first)
   bool isRequestSuccessful(int statusCode) {
     return (statusCode ~/ 100) == 2;
+  }
+
+  Future<String> getDeviceId() async {
+    DeviceInfoPlugin deviceInfoPlugin = new DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      AndroidDeviceInfo androidDeviceInfo = await deviceInfoPlugin.androidInfo;
+      return androidDeviceInfo.androidId;
+    } else {
+      IosDeviceInfo iosDeviceInfo = await deviceInfoPlugin.iosInfo;
+      return iosDeviceInfo.identifierForVendor;
+    }
+  }
+
+  Future<String> getDeviceName() async {
+    DeviceInfoPlugin deviceInfoPlugin = new DeviceInfoPlugin();
+    if (Platform.isAndroid) {
+      AndroidDeviceInfo androidDeviceInfo = await deviceInfoPlugin.androidInfo;
+      return androidDeviceInfo.model;
+    } else {
+      IosDeviceInfo iosDeviceInfo = await deviceInfoPlugin.iosInfo;
+      return iosDeviceInfo.utsname.machine;
+    }
   }
 }
