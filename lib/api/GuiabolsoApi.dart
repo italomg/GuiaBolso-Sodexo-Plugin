@@ -225,9 +225,9 @@ class GuiabolsoApi {
       "mobileUserId": "",
       "origin": "Android",
       "os": "Android",
-      "pwd": "{password}",
-      "userPlatform": "GuiaBolso",
-      "email": "{email}"
+      "pwd": password,
+      "userPlatform": "GuiaBolsoPlugin",
+      "email": email
     };
 
     Map<String, dynamic> bodyObject = {
@@ -269,6 +269,7 @@ class GuiabolsoApi {
     return eventName + ":response";
   }
 
+  //TODO move this method to a parent class(make one first)
   bool isRequestSuccessful(int statusCode) {
     return (statusCode ~/ 100) == 2;
   }

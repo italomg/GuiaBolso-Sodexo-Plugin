@@ -3,27 +3,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-// Make these methods non static
 class SodexoApi {
 
-  static String extractUrl = "https://mobile.sodexobeneficios.com.br/prod/balance/v2/searchBalanceAndTransactionsMobile?versaoChamada=2.0&cardsStatus=active%2CblockedButEligibleToBeShown&araras=false";
-  static final String renewTokenUrl = "https://mobile.sodexobeneficios.com.br/prod/userportal/v2/renewToken";
-  static final String loginUrl = "https://mobile.sodexobeneficios.com.br/prod/userportal/v2/login";
+  String extractUrl = "https://mobile.sodexobeneficios.com.br/prod/balance/v2/searchBalanceAndTransactionsMobile?versaoChamada=2.0&cardsStatus=active%2CblockedButEligibleToBeShown&araras=false";
+  static const String RENEW_TOKEN_URL = "https://mobile.sodexobeneficios.com.br/prod/userportal/v2/renewToken";
+  static const String LOGIN_URL = "https://mobile.sodexobeneficios.com.br/prod/userportal/v2/login";
 
-  static final String authorizationTokenKey = "authorization_token";
-  static final String renewTokenKey = "renew_token";
-  static final String userIdKey = "user_id";
+  static const String AUTHORIZATION_TOKEN_KEY = "authorization_token";
+  static const String RENEW_TOKEN_KEY = "renew_token";
+  static const String USER_ID_KEY = "user_id";
 
-  static String cpf;
-  static String password;
-  static SharedPreferences localDatabase;
+  String cpf;
+  String password;
+  SharedPreferences localDatabase;
 
-  static Future<List<SodexoCard>> fetchLatestTransactions(String cpf, String password, String initialDate, SharedPreferences localDatabase) async {
-    SodexoApi.cpf = cpf;
-    SodexoApi.password = password;
-    SodexoApi.localDatabase = localDatabase;
+  SodexoApi({this.cpf, this.password, this.localDatabase});
 
-    String authorizationTokenValue = localDatabase.get(authorizationTokenKey);
+  Future<List<SodexoCard>> fetchLatestTransactions(String initialDate) async {
+    String authorizationTokenValue = localDatabase.get(AUTHORIZATION_TOKEN_KEY);
 
     Map<String, String> headers = {
       "consumerid": "consumerSearchBalanceMobile",
@@ -58,7 +55,7 @@ class SodexoApi {
     return null;
   }
 
-  static void refreshToken(SharedPreferences localDatabase) {
+  void refreshToken(SharedPreferences localDatabase) {
     Map<String, String> headers = {
       "systemid": "7",
       "systemname": "Mobile",
@@ -73,8 +70,8 @@ class SodexoApi {
       "User-Agent": "okhttp/3.10.0",
     };
 
-    String refreshToken = localDatabase.getString(renewTokenKey);
-    int userId = localDatabase.getInt(userIdKey);
+    String refreshToken = localDatabase.getString(RENEW_TOKEN_KEY);
+    int userId = localDatabase.getInt(USER_ID_KEY);
 
     Map<String, dynamic> bodyObject = {
       "refreshToken": refreshToken,
@@ -83,12 +80,12 @@ class SodexoApi {
 
     String body = json.encode(bodyObject);
     
-    http.post(renewTokenUrl, body: body, headers: headers ).then((sodexoExtractResponse) {
+    http.post(RENEW_TOKEN_URL, body: body, headers: headers ).then((sodexoExtractResponse) {
       if (isRequestSuccessful(sodexoExtractResponse.statusCode)) {
         print("===== token renew was a success ======");
         print(sodexoExtractResponse.statusCode);
         String newToken = json.decode(sodexoExtractResponse.body)["accessToken"];
-        localDatabase.setString(authorizationTokenKey, newToken);
+        localDatabase.setString(AUTHORIZATION_TOKEN_KEY, newToken);
       } else {
         print("===== token renew went wrong.... login will be retried ======");
         login(localDatabase);
@@ -100,7 +97,7 @@ class SodexoApi {
 
   }
 
-  static void login(SharedPreferences localDatabase) {
+  void login(SharedPreferences localDatabase) {
     Map<String, String> headers = {
       "consumerid": "consumerUserMobile",
       "contextid": "UserPortalService",
@@ -118,10 +115,18 @@ class SodexoApi {
     };
 
     Map<String, dynamic> bodyObject = {
-      "user":{"araras":"false","cpf":cpf,"idMobile":"dummyMobileId","mobileAccess":"true","password":password,"type":"B","version":1}
+      "user": {
+        "araras":"false",
+        "cpf":cpf,
+        "idMobile":"someMobileId",
+        "mobileAccess":"true",
+        "password":password,
+        "type":"B",
+        "version":1
+      }
     };
     String body = json.encode(bodyObject);
-    http.post(loginUrl, headers: headers, body: body).then((loginResponse) {
+    http.post(LOGIN_URL, headers: headers, body: body).then((loginResponse) {
       print("===== login was a success ======");
       Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
 
@@ -129,16 +134,16 @@ class SodexoApi {
       String authorizationToken = decodedReponseBody["accessToken"];
       String renewToken = decodedReponseBody["refreshToken"];
 
-      localDatabase.setInt(userIdKey, userId);
-      localDatabase.setString(authorizationTokenKey, authorizationToken);
-      localDatabase.setString(renewTokenKey, renewToken);
+      localDatabase.setInt(USER_ID_KEY, userId);
+      localDatabase.setString(AUTHORIZATION_TOKEN_KEY, authorizationToken);
+      localDatabase.setString(RENEW_TOKEN_KEY, renewToken);
     }).catchError((error) {
       print("===== login failed with error: ======");
       print(error);
     });
   }
 
-  static List<SodexoCard> parseSodexoExtractResponse(http.Response sodexoExtractResponse) {
+  List<SodexoCard> parseSodexoExtractResponse(http.Response sodexoExtractResponse) {
     List<SodexoCard> parsedEntities = new List<SodexoCard>();
     List<dynamic> allCardsJson = json.decode(sodexoExtractResponse.body)["AccountDataReturnV2"];
     allCardsJson.forEach((cardData) {
@@ -149,7 +154,8 @@ class SodexoApi {
     return parsedEntities;
   }
 
-  static bool isRequestSuccessful(int statusCode) {
+  //TODO move this method to a parent class(make one first)
+  bool isRequestSuccessful(int statusCode) {
     return (statusCode ~/ 100) == 2;
   }
 
