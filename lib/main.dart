@@ -76,16 +76,18 @@ class _MyHomePageState extends State<MyHomePage> {
       // called again, and so nothing would appear to happen.
     });
 
+    GuiabolsoApi guiabolsoApi = new GuiabolsoApi(password: "{guiabolsoPassword}", email: "{email}", localDatabase: MyHomePage.localDatabase);
+    SodexoApi sodexoApi = new SodexoApi(cpf: "{cpf}", password: "{sodexoPassword}", localDatabase: MyHomePage.localDatabase);
+
     DateFormat dateFormater = new DateFormat("yyyyMMdd");
 
     String date = MyHomePage.localDatabase.getString(LAST_UPDATE_KEY);
     if (date == null) {
       date = dateFormater.format(DateTime.now());
-      MyHomePage.localDatabase.setString(LAST_UPDATE_KEY, date);
     }
-
-    print("============= fetch Sodexo transactions ===========");
-    List<SodexoCard> sodexoTransactionEntities = await sodexoApi.fetchLatestTransactions("20181128");
+    MyHomePage.localDatabase.setString(LAST_UPDATE_KEY, dateFormater.format(DateTime.now()));
+    
+    List<SodexoCard> sodexoTransactionEntities = await sodexoApi.fetchLatestTransactions(date, 0);
     print(sodexoTransactionEntities);
 
     if (sodexoTransactionEntities == null) {

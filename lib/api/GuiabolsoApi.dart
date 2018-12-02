@@ -26,6 +26,8 @@ class GuiabolsoApi {
 
   static const String MANUAL_TRANSACTION_URL = "https://www.guiabolso.com.br/API/v4/transactions/manual";
 
+  static const String MANUAL_STATEMENTS_URL = "https://www.guiabolso.com.br/API/v4/statements/manual";
+
   static const String LOGIN_EVENT_NAME = "users:login";
 
   static const String UPDATE_SESSION_TOKEN_EVENT_NAME = "update:session:token";
@@ -58,7 +60,7 @@ class GuiabolsoApi {
 
   Future<void > addExpense(SodexoTransaction sodexoTransaction, int statementId) async {
     String sessionToken = localDatabase.getString(SESSION_TOKEN_KEY);
-    print("===== Guia Bolso session token $sessionToken ======");
+    print("===== Guia Bolso will add new expense ======");
 
     Map<String, String> specialContentTypeHeader = new Map.from(HEADERS);
     specialContentTypeHeader["Content-Type"] = "application/x-www-form-urlencoded";
@@ -81,19 +83,17 @@ class GuiabolsoApi {
     body += "&description=" + description ;
     body += "&appToken=6.3.0.0&userPlatform=GuiaBolso&currency=BRL&categoryId=1";
 
-    print("===== Guia Bolso add expense body $body ======");
-
     await http.post(MANUAL_TRANSACTION_URL, headers: specialContentTypeHeader, body: body).then((addExpenseResponse) {
-      print("===== Guia Bolso add expense was a success ======");
+      print("===== Guia Bolso add expense http request was a success ======");
       Map<String, dynamic> decodedReponseBody = json.decode(addExpenseResponse.body);
 
       int returnCode = decodedReponseBody["returnCode"];
       if (returnCode != 1) {
-        print("===== Guia Bolso add expense error code ${addExpenseResponse.statusCode} ======");
+        print("===== Guia Bolso add expense RESPONSE ERROR ======");
         throw new Exception(addExpenseResponse.body);
       }
     }).catchError((error) async {
-      print("===== Guia Bolso add expense failed with error: ======");
+      print("===== Guia Bolso add expense REQUEST FAILED with error: ======");
       print(error);
 
       print("===== Will now try to refresh token: ======");
@@ -110,7 +110,6 @@ class GuiabolsoApi {
     http.Response userInfo = await fetchUserInfo();
     for (String statementKey in statementKeys) {
       if (!localDatabase.getKeys().contains(statementKey)) {
-        print("===== Guia Bolso statement key $statementKey not present ======");
         if (!isRequestSuccessful(userInfo.statusCode)) {
           print("===== Guia Bolso could not fetch user info REQUEST FAILED ======");
           await refreshToken();
@@ -134,7 +133,7 @@ class GuiabolsoApi {
             for (dynamic statement in statements) {
               String statementName = statement["name"];
               statementName = utf8.decode(statementName.codeUnits);
-              print("===== Guia Bolso statement name $statementName ======");
+              print("===== Guia Bolso account with statement name $statementName found ======");
               if (statementNames.contains(statementName)) {
                 localDatabase.setInt(ACCOUNT_TO_DATABASE[statementName], statement["id"]);
               }
@@ -142,6 +141,19 @@ class GuiabolsoApi {
           }
         }
       }
+    }
+
+    Set<String> statementsNotCreated = statementKeys.difference(localDatabase.getKeys());
+    List<String> statementsNamesToCreate = new List<String>();
+
+    Map<String, String> accountToDatabaseCopy = new Map.from(ACCOUNT_TO_DATABASE);
+
+    accountToDatabaseCopy.removeWhere((statementKey, statementName) => !statementsNotCreated.contains(statementName));
+
+    accountToDatabaseCopy.forEach((statementKey, statementName) => statementsNamesToCreate.add(statementKey));
+
+    for (String statementName in statementsNamesToCreate) {
+      await createStatement(statementName);
     }
   }
 
@@ -175,8 +187,35 @@ class GuiabolsoApi {
   }
 
   // Name must be url encoded
-  void createStatement(String name) {
-    throw new UnimplementedError();
+  Future<void> createStatement(String name) async {
+    String sessionToken = localDatabase.getString(SESSION_TOKEN_KEY);
+    String deviceId = await getDeviceId();
+    String encodedStatementName = Uri.encodeQueryComponent(name);
+    print("===== Guia Bolso will create account statement $name ======");
+
+    Map<String, String> specialContentTypeHeader = new Map.from(HEADERS);
+    specialContentTypeHeader["Content-Type"] = "application/x-www-form-urlencoded";
+
+    String body = "sessionToken=" + sessionToken;
+    body += "&deviceToken=" + deviceId;
+    body += "&name=" + encodedStatementName;
+    body += "&appToken=6.3.0.0&userPlatform=GuiaBolso&type=0&value=0.0&currency=BRL";
+
+    await http.post(MANUAL_STATEMENTS_URL, headers: specialContentTypeHeader, body: body).then((createStatementResponse) {
+      print("===== Guia Bolso create account statement REQUEST was a success ======");
+      Map<String, dynamic> decodedReponseBody = json.decode(createStatementResponse.body);
+
+      int returnCode = decodedReponseBody["returnCode"];
+      if (returnCode != 1) {
+        print("===== Guia Bolso create account statement RESPONSE ERROR ======");
+        throw new Exception(createStatementResponse.body);
+      }
+    }).catchError((error) async {
+      print("===== Guia Bolso create account statement REQUEST FAILED with error: ======");
+      print(error);
+
+      throw error;
+    });
   }
 
   Future<void> refreshToken() async {
@@ -204,18 +243,19 @@ class GuiabolsoApi {
     };
 
     String body = json.encode(bodyObject);
-    http.post(OTHER_EVENTS_URL, headers: HEADERS, body: body).then((loginResponse) {
-      print("===== Guia Bolso token renew was a success ======");
-      print(loginResponse.request.url);
-      print(loginResponse.request.headers);
+    http.post(OTHER_EVENTS_URL, headers: HEADERS, body: body).then((tokenRenewResponse) {
+      print("===== Guia Bolso token renew REQUEST was a success ======");
+      print(tokenRenewResponse.request.url);
+      print(tokenRenewResponse.request.headers);
       print(body);
-      print(loginResponse.statusCode);
-      print(loginResponse.body);
-      Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
+      print(tokenRenewResponse.statusCode);
+      print(tokenRenewResponse.body);
+      Map<String, dynamic> decodedReponseBody = json.decode(tokenRenewResponse.body);
 
       String name = decodedReponseBody["name"];
       if (name != eventNameResponse(UPDATE_SESSION_TOKEN_EVENT_NAME)) {
-        throw new Exception(loginResponse);
+        print("===== Guia Bolso token renew RESPONSE ERROR with error: ======");
+        throw new Exception(tokenRenewResponse.body);
       }
 
       String newSessionToken = decodedReponseBody["auth"]["sessionToken"];
@@ -224,11 +264,13 @@ class GuiabolsoApi {
       localDatabase.setString(SESSION_TOKEN_KEY, newSessionToken);
       localDatabase.setString(TOKEN_KEY, newToken);
     }).catchError((error) {
-      print("===== Guia Bolso token renew failed with error: ======");
+      print("===== Guia Bolso token renew REQUEST FAILED with error: ======");
       print(error);
 
       print("===== Will now try to relogin: ======");
       login();
+
+      throw error;
     });
   }
 
@@ -269,14 +311,16 @@ class GuiabolsoApi {
 
     String body = json.encode(bodyObject);
     http.post(OTHER_EVENTS_URL, headers: HEADERS, body: body).then((loginResponse) {
-      print("===== Guia Bolso login was a success ======");
+      print("===== Guia Bolso login REQUEST was a success ======");
       print(loginResponse.body);
       Map<String, dynamic> decodedReponseBody = json.decode(loginResponse.body);
 
       String name = decodedReponseBody["name"];
       if (name != eventNameResponse(LOGIN_EVENT_NAME)) {
-        print("===== Guia Bolso login failed with error: ======");
-        print(loginResponse.toString());
+        print("===== Guia Bolso login RESPONSE ERROR ======");
+        print(loginResponse.body);
+
+        throw new Exception(loginResponse.body);
       }
 
       String sessionToken = decodedReponseBody["auth"]["sessionToken"];
@@ -285,8 +329,10 @@ class GuiabolsoApi {
       localDatabase.setString(SESSION_TOKEN_KEY, sessionToken);
       localDatabase.setString(TOKEN_KEY, token);
     }).catchError((error) {
-      print("===== Guia Bolso login failed with error: ======");
-      print(error.toString());
+      print("===== Guia Bolso login REQUEST FAILED with error: ======");
+      print(error);
+
+      throw error;
     });
   }
 
